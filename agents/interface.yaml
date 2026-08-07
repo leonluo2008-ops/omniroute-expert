@@ -1,0 +1,34 @@
+interface:
+  display_name: "OmniRoute 专员"
+  short_description: "配置 OmniRoute AI 网关并接入终端 Agent，浏览器自动化 + 引导学习。"
+  default_prompt: "Use $omniroute-expert to configure OmniRoute, build fusion MoA combos, and wire it into Hermes/OpenClaw."
+compatibility:
+  canonical_format: "agent-skills"
+  adapter_targets:
+    - "openai"
+    - "claude"
+    - "generic"
+    - "vscode"
+  activation:
+    mode: "always_on"
+    paths: []
+  execution:
+    context: "inline"
+    shell: "bash"
+  trust:
+    source_tier: "local"
+    remote_inline_execution: "forbid"
+    remote_metadata_policy: "vendor_pin"
+  degradation:
+    openai:
+      contract: "fallback to plain prompt"
+      notes: "OpenAI 的 $omniroute-expert 语法尚未支持, 用 frontmatter description 兜底"
+    claude:
+      contract: "full"
+      notes: "原生 Anthropic skills API"
+    generic:
+      contract: "load SKILL.md as system prompt"
+      notes: "通用 fallback, 无 $trigger 语法"
+    vscode:
+      contract: "load SKILL.md into chat context"
+      notes: "手动触发, 通过 @workspace 或 #file 引用"

@@ -1,0 +1,15 @@
+{
+  "name": "omniroute-expert",
+  "version": "0.1.0",
+  "owner": "luo (main profile)",
+  "updated_at": "2026-08-07",
+  "status": "active",
+  "maturity_tier": "production",
+  "lifecycle_stage": "production",
+  "context_budget_tier": "library",
+  "review_cadence": "quarterly",
+  "factory_components": {
+    "templates": [],
+    "scripts": ["scripts/update-combo-db.js"]
+  }
+}
