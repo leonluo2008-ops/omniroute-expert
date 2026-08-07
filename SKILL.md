@@ -1,9 +1,9 @@
 ---
 name: omniroute-expert
 description: 配置OmniRoute并接入终端Agent，浏览器自动化+引导学习。
-version: 0.1.0
+version: 0.2.0
 author: Hermes
-trigger: OmniRoute专员, 配置OmniRoute, 装OmniRoute, OmniRoute combo, fusion MoA, 路由 fallback, Token 压缩, RTK, Caveman
+trigger: OmniRoute专员, 配置OmniRoute, 装OmniRoute, OmniRoute combo, fusion MoA, 路由 fallback, Token 压缩, RTK, Caveman, A2A 网关, a2a gateway
 metadata:
   hermes:
     tags: [OmniRoute, AI网关, 配置, 引导学习, 运维, 排障]
@@ -201,14 +201,51 @@ hermes config set model.provider "omniroute" --force
 
 **OpenClaw**：见 `openclaw-omniroute-ops`（key 必须注册 auth store、provider 声明 baseUrl、模型引用 `omniroute/<combo名>`、模型对象须含 name 字段、imageModel.primary 用完整 `provider/model-id`）。
 
-### 9. 多模态：视频识别经 OmniRoute 中转
+### 9. A2A v1.0→v0.3 协议网关
+
+**为什么需要**：Hermes A2A v1.0（method `SendMessage`，payload `message.parts[]`）与 OmniRoute 内置 A2A v0.3（method `message/send`，payload `messages[{role,content}]` + `skill`）协议不兼容，直接 `a2a_call` 到 OmniRoute 返回 404。网关做协议翻译。
+
+**架构**（单文件 Python stdlib，零依赖）：暴露 Agent Card（`/.well-known/agent.json`）→ 收 v1.0 `SendMessage` 转成 v0.3 `message/send` 转发 OmniRoute → 把 v0.3 结果包回 v1.0 Task 结构。
+
+**部署**：
+```bash
+# 脚本位置（已部署）
+ls ~/.hermes/scripts/omniroute-a2a-gateway.py
+
+# systemd --user service
+systemctl --user start omniroute-a2a-gateway.service
+systemctl --user status omniroute-a2a-gateway.service
+systemctl --user stop omniroute-a2a-gateway.service
+```
+service 文件：`~/.config/systemd/user/omniroute-a2a-gateway.service`，监听 `:20129`，转发到 OmniRoute `:20128/a2a`。
+
+**使用**（在 Hermes 或任何 A2A v1.0 客户端）：
+```python
+a2a_discover("http://<tailscale-ip>:20129")  # 发现网关 Agent Card
+a2a_call("omniroute-gateway", "给我健康报告")  # 调用，自动匹配 skill
+```
+
+**6 个可用技能**（OmniRoute A2A 内置）：
+
+| skill id | 用途 |
+|---|---|
+| `smart-routing` | 智能请求路由分析 |
+| `provider-discovery` | 供应商发现 |
+| `quota-management` | 配额管理 |
+| `cost-analysis` | 成本分析 |
+| `health-report` | 健康报告（默认 skill） |
+| `list-capabilities` | 列出能力 |
+
+调用时在消息文本里提到 skill 名即可路由（如"给我 cost-analysis"），未匹配则默认 `smart-routing`。
+
+### 10. 多模态：视频识别经 OmniRoute 中转
 **视频必须用 `image_url` 包装**（中转平台约定），不是 `video_url`（仅 Moonshot 保留，其它平台被过滤）：
 ```json
 {"type":"image_url","image_url":{"url":"data:video/mp4;base64,<base64>"}}
 ```
 大视频先压：640px 宽 + 截短到 ≤10s，base64 ~300KB，否则超 context 上限（base64 视频会被估算成巨大 token）。
 
-### 10. 搜索服务商
+### 11. 搜索服务商
 独立 `/v1/search` 端点。支持 Serper/Brave/Tavily/Perplexity/SearXNG/You.com 等 + DuckDuckGo 免费兜底。搜索 provider 本身就是模型（无「模型」概念）。在 Dashboard Providers 加搜索服务商填 key。
 
 ## Pitfalls
@@ -225,6 +262,7 @@ hermes config set model.provider "omniroute" --force
 - **auto 组合 candidatePool 陷阱**：往 auto 组合加新供应商模型时，必须把该 providerId 加进 `config.candidatePool`，否则 auto 不纳入路由。
 - **拓扑图残留已删供应商节点**：拓扑从 `call_logs`/`proxy_logs` 聚合（非当前配置）。清残留：停容器 → `docker cp` 出库 → `sqlite3` DELETE call_logs/proxy_logs 里已删 provider → 拷回 → 启动。清前备份。
 - **LiteLLM pricing fetch failed** 是无害警告（外网拉不到定价表），不影响功能。
+- **A2A 网关依赖 OmniRoute A2A 已启用**：网关只做协议翻译，转发到 OmniRoute `/a2a` 端点。若 OmniRoute UI → 代理功能 → A2A 开关未开，转发返回 503 `-32000`。先在 OmniRoute Dashboard 确认 A2A 启用。
 - **read_file/grep 输出反引号模板显示为 `***`** 是显示层伪影，文件字节正确，别去"修"不存在的坏字符（用 `xxd`/Python rb 验证原始字节）。
 
 ## Verification
