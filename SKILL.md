@@ -110,6 +110,55 @@ docker run -d --name omniroute --restart always -p 20128:20128 \
 5. 设 judgeModel：dialog 内 `input`（placeholder 是 panel[0] 的 model 名），填 provider 内部 UUID id
 6. 审查页确认 →「创建组合」→ 实测验证
 
+### 3.5 REST API 管理 combo（修改 panel / judge，免进容器，v3.8.49 实测 2026-08-08）
+
+**首选路径**，比步骤 6（热改 DB）更安全简单。两种 token 的区别：
+- **endpoint key**（`~/.hermes/.env` 的 `OMNIROUTE_API_KEY`）：只能调 `/v1/*`，调 `/api/*` 报 `AUTH_001 Invalid management token`
+- **管理 token**（`oma_live_*` 前缀）：从 OmniRoute UI 登录后获取，能调 `/api/*`
+
+| 端点 | 方法 | 用途 |
+|---|---|---|
+| `/api/combos` | GET | 列出所有组合（拿 combo UUID） |
+| `/api/combos/{id}` | GET | 获取单个组合完整配置 |
+| `/api/combos/{id}` | PUT | 更新组合（**完整覆盖式**，必须传所有字段） |
+| `/v1/models` | GET | 列出所有可用模型（含 combo 虚拟模型） |
+| `/api/providers` | GET | 列出所有 provider 连接（含 connectionId） |
+
+**标准修改流程**（备份 → 改字段 → PUT → 验证）：
+```bash
+TOKEN="oma_live_xxx"  # 管理 token，非 endpoint key
+ID="<combo-uuid>"     # 从 GET /api/combos 获取
+
+# 1. 备份当前配置（必须用最新 GET 结果，不能用旧备份，PUT 是覆盖式）
+curl -s "http://127.0.0.1:20128/api/combos/${ID}" \
+  -H "Authorization: Bearer ${TOKEN}" > combo.json
+
+# 2. 构造 PUT payload（Python 加载 → 改字段 → 写回）
+python3 -c "
+import json
+with open('combo.json') as f: c = json.load(f)
+c['config']['judgeModel'] = 'glm-cn/glm-5.2'  # 改 judge
+# 或替换 panel 模型：c['models'][0] = {'id': f'moa-x-model-{uuid}', 'kind': 'model', 'model': 'jxgpt/gpt-5.6-terra', 'providerId': 'xxx', 'weight': 0, 'label': '聚鑫-GPT'}
+with open('put.json', 'w') as f: json.dump({
+    'name': c['name'], 'description': c['description'],
+    'strategy': c['strategy'], 'models': c['models'],
+    'config': c['config'], 'isHidden': c.get('isHidden', False),
+    'sortOrder': c.get('sortOrder', 0),
+}, f, ensure_ascii=False)
+"
+
+# 3. PUT 提交（即时生效，无需热重载）
+curl -s -X PUT "http://127.0.0.1:20128/api/combos/${ID}" \
+  -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
+  -d @put.json | python3 -m json.tool
+```
+
+**踩坑**：
+- **PUT 是完整覆盖**：必须基于最新 GET 结果修改。连续两次 PUT 用同一旧备份 → 第二次会覆盖掉第一次的改动（实测教训：先改 panel 再改 judge，第二次 PUT 用了第一次之前的备份，judge 改动被覆盖）
+- **管理 token 获取**：UI 登录后从浏览器拿（`oma_live_` 前缀），endpoint key 不行
+- **即时生效**：OmniRoute PUT 写 DB 后立即反映到后续请求，当前对话下一条请求就用新配置
+- **UI 不暴露 judgeModel**：v3.8.49 Web 策略页不渲染 Judge Model 输入框（源码有 `FusionDefaultsFields.tsx` 组件但策略页未挂载），改 judge 只能走 REST API 或直接改 DB
+
 ### 4. 实测验证 combo
 ```bash
 curl -X POST http://<tailscale-ip>:20128/v1/chat/completions \
